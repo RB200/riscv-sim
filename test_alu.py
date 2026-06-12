@@ -39,7 +39,10 @@ def run_op(op, a, b, rd=3, rs1=1, rs2=2):
 
 # funct3 selectors for I-type (OP-IMM) ops
 F3_I = {"ADDI": 0b000, "SLTI": 0b010, "SLTIU": 0b011,
-        "XORI": 0b100, "ORI": 0b110, "ANDI": 0b111}
+        "XORI": 0b100, "ORI": 0b110, "ANDI": 0b111,
+        "SLLI": 0b001, "SRLI": 0b101, "SRAI": 0b101}
+# funct7 (imm[11:5]) selectors for the shift-immediate ops
+F7_I = {"SLLI": 0b0000000, "SRLI": 0b0000000, "SRAI": 0b0100000}
 
 
 def encode_i(op, rd, rs1, imm):
@@ -52,6 +55,27 @@ def encode_i(op, rd, rs1, imm):
         | (rd << 7)
         | opcode
     )
+
+
+def encode_shift_i(op, rd, rs1, shamt):
+    """Encode a shift-immediate (SLLI/SRLI/SRAI) instruction word."""
+    opcode = 0b0010011  # OP_IMM
+    return (
+        (F7_I[op] << 25)
+        | ((shamt & 0x1F) << 20)
+        | (rs1 << 15)
+        | (F3_I[op] << 12)
+        | (rd << 7)
+        | opcode
+    )
+
+
+def run_shift_imm(op, a, shamt, rd=3, rs1=1):
+    """Load a into rs1; execute shift-immediate op; return value written to rd."""
+    cpu = RISC_V()
+    cpu.registers[rs1] = a & 0xFFFFFFFF
+    cpu.decode_instruction(encode_shift_i(op, rd, rs1, shamt))
+    return cpu.registers[rd]
 
 
 def run_imm(op, a, imm, rd=3, rs1=1):
@@ -242,6 +266,85 @@ class TestSLTIU(unittest.TestCase):
     def test_sign_extended_immediate_compared_unsigned(self):
         # imm -1 sign-extends to 0xFFFFFFFF; 5 < 0xFFFFFFFF is true
         self.assertEqual(run_imm("SLTIU", 5, -1), 1)
+
+
+class TestXORI(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_imm("XORI", 0b1100, 0b1010), 0b0110)
+
+    def test_with_zero_identity(self):
+        self.assertEqual(run_imm("XORI", 0x1234, 0), 0x1234)
+
+    def test_not_idiom(self):
+        # xori rd, rs1, -1 is bitwise NOT: ~0 -> 0xFFFFFFFF
+        self.assertEqual(run_imm("XORI", 0, -1), 0xFFFFFFFF)
+        self.assertEqual(run_imm("XORI", 0x0F0F0F0F, -1), 0xF0F0F0F0)
+
+
+class TestORI(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_imm("ORI", 0b1100, 0b1010), 0b1110)
+
+    def test_with_zero_identity(self):
+        self.assertEqual(run_imm("ORI", 0x1234, 0), 0x1234)
+
+    def test_negative_immediate_sets_high_bits(self):
+        # imm -1 sign-extends to 0xFFFFFFFF; OR sets every bit
+        self.assertEqual(run_imm("ORI", 0x1234, -1), 0xFFFFFFFF)
+
+
+class TestANDI(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_imm("ANDI", 0b1100, 0b1010), 0b1000)
+
+    def test_with_zero_clears(self):
+        self.assertEqual(run_imm("ANDI", 0x1234, 0), 0)
+
+    def test_negative_immediate_preserves(self):
+        # imm -1 sign-extends to 0xFFFFFFFF; AND is identity
+        self.assertEqual(run_imm("ANDI", 0xABCD, -1), 0xABCD)
+
+    def test_low_byte_mask(self):
+        self.assertEqual(run_imm("ANDI", 0xABCD, 0xFF), 0xCD)
+
+
+class TestSLLI(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_shift_imm("SLLI", 0b0001, 4), 0b10000)
+
+    def test_shift_into_top_bit(self):
+        self.assertEqual(run_shift_imm("SLLI", 0x1, 31), 0x80000000)
+
+    def test_overflow_truncates(self):
+        self.assertEqual(run_shift_imm("SLLI", 0x80000000, 1), 0x0)
+
+    def test_shift_by_zero(self):
+        self.assertEqual(run_shift_imm("SLLI", 0xDEAD, 0), 0xDEAD)
+
+
+class TestSRLI(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_shift_imm("SRLI", 0b1000, 2), 0b0010)
+
+    def test_zero_fills_top(self):
+        # logical shift: sign bit NOT preserved
+        self.assertEqual(run_shift_imm("SRLI", 0x80000000, 4), 0x08000000)
+
+    def test_shift_by_zero(self):
+        self.assertEqual(run_shift_imm("SRLI", 0xDEAD, 0), 0xDEAD)
+
+
+class TestSRAI(unittest.TestCase):
+    def test_positive_same_as_logical(self):
+        self.assertEqual(run_shift_imm("SRAI", 0b1000, 2), 0b0010)
+
+    def test_negative_sign_extends(self):
+        # -8 >> 1 == -4 -> 0xFFFFFFFC
+        self.assertEqual(run_shift_imm("SRAI", 0xFFFFFFF8, 1), 0xFFFFFFFC)
+
+    def test_all_ones_stays_all_ones(self):
+        # 0xFFFFFFFF is -1; arithmetic shift of -1 is still -1
+        self.assertEqual(run_shift_imm("SRAI", 0xFFFFFFFF, 8), 0xFFFFFFFF)
 
 
 if __name__ == "__main__":

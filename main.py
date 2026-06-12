@@ -90,6 +90,8 @@ class RISC_V:
             imm = to_signed((instr >> 20) & 0xFFF, 12) # sign-extend 12-bit immediate value
             rs1 = (instr >> 15) & 0x1F
             funct3 = (instr >> 12) & 0x07
+            funct7 = (instr >> 25) & 0x7F
+            shamt = (instr >> 20) & 0x1F
             rd = (instr >> 7) & 0x1F
             
             a = self.registers[rs1]
@@ -117,12 +119,32 @@ class RISC_V:
                 
             elif funct3 == 0b100:
                 # XORI
+                self.registers[rd] = (a ^ imm) & 0xFFFFFFFF
                 print("XORI")
                 
             elif funct3 == 0b110:
+                self.registers[rd] = (a | imm) & 0xFFFFFFFF
                 # ORI
                 print("ORI")
                 
             elif funct3 == 0b111:
+                self.registers[rd] = (a & imm) & 0xFFFFFFFF
                 # ANDI
                 print("ANDI")
+            
+            elif funct3 == 0b001:
+                self.registers[rd] = (a << shamt) & 0xFFFFFFFF
+                # SLLI
+                print("SLLI")
+            
+            elif funct3 == 0b101:
+                if funct7 == 0:
+                    # SRLI
+                    self.registers[rd] = (a >> shamt) & 0xFFFFFFFF
+                    print("SRLI")
+                elif funct7 == 0b0100000:
+                    # SRAI
+                    self.registers[rd] = (to_signed(a) >> shamt) & 0xFFFFFFFF
+                    print("SRAI")
+            
+            
