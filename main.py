@@ -50,7 +50,6 @@ class RISC_V:
             
             elif funct3 == 0b001:
                 # SLL
-                    
                 self.registers[rd] = (a << (b & 0x1F)) & 0xFFFFFFFF
                 print("SLL")
 
@@ -86,4 +85,44 @@ class RISC_V:
                 self.registers[rd] = a & b
                 # AND
                 print("AND")
+        
+        elif opcode == OP_IMM:
+            imm = to_signed((instr >> 20) & 0xFFF, 12) # sign-extend 12-bit immediate value
+            rs1 = (instr >> 15) & 0x1F
+            funct3 = (instr >> 12) & 0x07
+            rd = (instr >> 7) & 0x1F
             
+            a = self.registers[rs1]
+            
+            if funct3 == 0b000:
+                # ADDI
+                self.registers[rd] = (a + imm) & 0xFFFFFFFF
+                print("ADDI")
+                
+            elif funct3 == 0b010:
+                # SLTI
+                if to_signed(a) < imm:
+                    self.registers[rd] = 1
+                else: 
+                    self.registers[rd] = 0
+                print("SLTI")
+                
+            elif funct3 == 0b011:
+                # SLTIU
+                if a < (imm & 0xFFFFFFFF):
+                    self.registers[rd] = 1
+                else:
+                    self.registers[rd] = 0
+                print("SLTIU")
+                
+            elif funct3 == 0b100:
+                # XORI
+                print("XORI")
+                
+            elif funct3 == 0b110:
+                # ORI
+                print("ORI")
+                
+            elif funct3 == 0b111:
+                # ANDI
+                print("ANDI")

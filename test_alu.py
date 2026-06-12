@@ -37,6 +37,31 @@ def run_op(op, a, b, rd=3, rs1=1, rs2=2):
     return cpu.registers[rd]
 
 
+# funct3 selectors for I-type (OP-IMM) ops
+F3_I = {"ADDI": 0b000, "SLTI": 0b010, "SLTIU": 0b011,
+        "XORI": 0b100, "ORI": 0b110, "ANDI": 0b111}
+
+
+def encode_i(op, rd, rs1, imm):
+    """Encode an I-type (OP-IMM) instruction word for the given mnemonic."""
+    opcode = 0b0010011  # OP_IMM
+    return (
+        ((imm & 0xFFF) << 20)  # 12-bit immediate, two's complement
+        | (rs1 << 15)
+        | (F3_I[op] << 12)
+        | (rd << 7)
+        | opcode
+    )
+
+
+def run_imm(op, a, imm, rd=3, rs1=1):
+    """Load a into rs1; execute op with immediate imm; return value written to rd."""
+    cpu = RISC_V()
+    cpu.registers[rs1] = a & 0xFFFFFFFF
+    cpu.decode_instruction(encode_i(op, rd, rs1, imm))
+    return cpu.registers[rd]
+
+
 class TestADD(unittest.TestCase):
     def test_basic(self):
         self.assertEqual(run_op("ADD", 2, 3), 5)
@@ -170,6 +195,53 @@ class TestSLL(unittest.TestCase):
 
     def test_shift_by_zero(self):
         self.assertEqual(run_op("SLL", 0xDEAD, 0), 0xDEAD)
+
+
+class TestADDI(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_imm("ADDI", 2, 3), 5)
+
+    def test_negative_immediate(self):
+        self.assertEqual(run_imm("ADDI", 10, -1), 9)
+
+    def test_negative_immediate_wraps(self):
+        # 0 + (-1) -> 0xFFFFFFFF in 32-bit two's complement
+        self.assertEqual(run_imm("ADDI", 0, -1), 0xFFFFFFFF)
+
+    def test_immediate_zero(self):
+        self.assertEqual(run_imm("ADDI", 0x1234, 0), 0x1234)
+
+
+class TestSLTI(unittest.TestCase):
+    def test_less_than(self):
+        self.assertEqual(run_imm("SLTI", 1, 2), 1)
+
+    def test_not_less_than(self):
+        self.assertEqual(run_imm("SLTI", 2, 1), 0)
+
+    def test_signed_register_less_than(self):
+        # reg holds 0xFFFFFFFF (= -1 signed); -1 < 0 is true
+        self.assertEqual(run_imm("SLTI", 0xFFFFFFFF, 0), 1)
+
+    def test_signed_negative_immediate(self):
+        # 5 < -1 is false under signed comparison
+        self.assertEqual(run_imm("SLTI", 5, -1), 0)
+
+
+class TestSLTIU(unittest.TestCase):
+    def test_less_than(self):
+        self.assertEqual(run_imm("SLTIU", 1, 2), 1)
+
+    def test_not_less_than(self):
+        self.assertEqual(run_imm("SLTIU", 2, 1), 0)
+
+    def test_large_unsigned_not_less_than(self):
+        # reg holds 0xFFFFFFFF (max unsigned); NOT < 1 under unsigned compare
+        self.assertEqual(run_imm("SLTIU", 0xFFFFFFFF, 1), 0)
+
+    def test_sign_extended_immediate_compared_unsigned(self):
+        # imm -1 sign-extends to 0xFFFFFFFF; 5 < 0xFFFFFFFF is true
+        self.assertEqual(run_imm("SLTIU", 5, -1), 1)
 
 
 if __name__ == "__main__":
