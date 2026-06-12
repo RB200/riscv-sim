@@ -13,6 +13,7 @@ OP_REG    = 0b0110011
 OP_FENCE  = 0b0001111
 OP_SYSTEM = 0b1110011
 
+x0 = 0
 def to_signed(val, bits=32):
     if val & (1 << (bits - 1)):
         return val - (1 << bits)
@@ -42,19 +43,23 @@ class RISC_V:
                     self.registers[rd] = a + b
                     print("add")
                     pass
-                elif funct7 == 32:
+                elif funct7 == 0b100000:
                     self.registers[rd] = a - b
                     print("sub")
                     pass
             
             elif funct3 == 0b001:
                 # SLL
+                    
+                self.registers[rd] = (a << (b & 0x1F)) & 0xFFFFFFFF
                 print("SLL")
 
             elif funct3 == 0b010:  # SLT (signed)
                 self.registers[rd] = 1 if to_signed(a) < to_signed(b) else 0
 
             elif funct3 == 0b011:  # SLTU (unsigned)
+                if a == x0 and b != 0: # edge case as per sec 2.4.2 of spec
+                    self.registers[rd] = 1
                 self.registers[rd] = 1 if a < b else 0
             
             elif funct3 == 0b100:
@@ -62,13 +67,16 @@ class RISC_V:
                 print("XOR")
             
             elif funct3 == 0b101:
+                shamt = b & 0x1F    # shift amount = low 5 bits of rs2
                 if funct7 == 0:
                     # SRL
+                    self.registers[rd] = (a >> shamt) & 0xFFFFFFFF
                     print("SRL")
                 elif funct7 == 0b0100000:
                     # SRA
+                    self.registers[rd] = (to_signed(a) >> shamt) & 0xFFFFFFFF
                     print("SRA")
-
+                    
             elif funct3 == 0b110:
                 # OR
                 self.registers[rd] = a | b

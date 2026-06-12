@@ -6,10 +6,12 @@ from main import RISC_V
 F3 = {
     "ADD": 0b000, "SUB": 0b000, "SLT": 0b010, "SLTU": 0b011,
     "XOR": 0b100, "OR": 0b110, "AND": 0b111,
+    "SRL": 0b101, "SRA": 0b101, "SLL": 0b001,
 }
 F7 = {
     "ADD": 0b0000000, "SUB": 0b0100000, "SLT": 0b0000000, "SLTU": 0b0000000,
     "XOR": 0b0000000, "OR": 0b0000000, "AND": 0b0000000,
+    "SRL": 0b0000000, "SRA": 0b0100000, "SLL": 0b0000000,
 }
 
 
@@ -117,6 +119,57 @@ class TestAND(unittest.TestCase):
 
     def test_mask(self):
         self.assertEqual(run_op("AND", 0xABCD, 0x00FF), 0x00CD)
+
+
+class TestSRL(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_op("SRL", 0b1000, 2), 0b0010)
+
+    def test_zero_fills_top(self):
+        # logical shift: sign bit is NOT preserved, top fills with 0
+        self.assertEqual(run_op("SRL", 0x80000000, 4), 0x08000000)
+
+    def test_shift_amount_masked_to_5_bits(self):
+        # shamt uses only low 5 bits, so 32 wraps to 0 (no shift)
+        self.assertEqual(run_op("SRL", 0x1234, 32), 0x1234)
+
+    def test_shift_by_zero(self):
+        self.assertEqual(run_op("SRL", 0xDEAD, 0), 0xDEAD)
+
+
+class TestSRA(unittest.TestCase):
+    def test_positive_same_as_logical(self):
+        self.assertEqual(run_op("SRA", 0b1000, 2), 0b0010)
+
+    def test_negative_sign_extends(self):
+        # -8 >> 1 == -4  -> 0xFFFFFFFC in 32-bit two's complement
+        self.assertEqual(run_op("SRA", -8, 1) & 0xFFFFFFFF, 0xFFFFFFFC)
+
+    def test_all_ones_stays_all_ones(self):
+        # 0xFFFFFFFF is -1; arithmetic shift of -1 is still -1
+        self.assertEqual(run_op("SRA", 0xFFFFFFFF, 8), 0xFFFFFFFF)
+
+    def test_shift_amount_masked_to_5_bits(self):
+        self.assertEqual(run_op("SRA", 0x1234, 32), 0x1234)
+
+
+class TestSLL(unittest.TestCase):
+    def test_basic(self):
+        self.assertEqual(run_op("SLL", 0b0001, 4), 0b10000)
+
+    def test_shift_into_top_bit(self):
+        self.assertEqual(run_op("SLL", 0x1, 31), 0x80000000)
+
+    def test_overflow_truncates(self):
+        # bit shifted past bit 31 is dropped, not clamped
+        self.assertEqual(run_op("SLL", 0x80000000, 1), 0x0)
+
+    def test_shift_amount_masked_to_5_bits(self):
+        # shamt uses only low 5 bits, so 32 wraps to 0 (no shift)
+        self.assertEqual(run_op("SLL", 0x1234, 32), 0x1234)
+
+    def test_shift_by_zero(self):
+        self.assertEqual(run_op("SLL", 0xDEAD, 0), 0xDEAD)
 
 
 if __name__ == "__main__":
