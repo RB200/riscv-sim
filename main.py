@@ -146,5 +146,15 @@ class RISC_V:
                     # SRAI
                     self.registers[rd] = (to_signed(a) >> shamt) & 0xFFFFFFFF
                     print("SRAI")
+        
+        elif opcode == OP_LUI:
+            imm = instr & 0xFFFFF000
+            rd = (instr >> 7) & 0x1F
             
+            self.registers[rd] = imm
+        
+        elif opcode == OP_AUIPC:
+            imm = instr & 0xFFFFF000
+            rd = (instr >> 7) & 0x1F
+            self.registers[rd] = (self.pc + imm) & 0xFFFFFFFF
             

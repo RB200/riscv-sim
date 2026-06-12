@@ -70,6 +70,23 @@ def encode_shift_i(op, rd, rs1, shamt):
     )
 
 
+# opcodes for U-type ops
+OPCODE_U = {"LUI": 0b0110111, "AUIPC": 0b0010111}
+
+
+def encode_u(op, rd, imm20):
+    """Encode a U-type instruction word. imm20 is the 20-bit upper immediate."""
+    return ((imm20 & 0xFFFFF) << 12) | (rd << 7) | OPCODE_U[op]
+
+
+def run_u(op, imm20, pc=0, rd=3):
+    """Execute a U-type op at the given pc; return the value written to rd."""
+    cpu = RISC_V()
+    cpu.pc = pc
+    cpu.decode_instruction(encode_u(op, rd, imm20))
+    return cpu.registers[rd]
+
+
 def run_shift_imm(op, a, shamt, rd=3, rs1=1):
     """Load a into rs1; execute shift-immediate op; return value written to rd."""
     cpu = RISC_V()
@@ -345,6 +362,31 @@ class TestSRAI(unittest.TestCase):
     def test_all_ones_stays_all_ones(self):
         # 0xFFFFFFFF is -1; arithmetic shift of -1 is still -1
         self.assertEqual(run_shift_imm("SRAI", 0xFFFFFFFF, 8), 0xFFFFFFFF)
+
+
+class TestLUI(unittest.TestCase):
+    def test_basic(self):
+        # imm goes into the upper 20 bits; low 12 bits are zero
+        self.assertEqual(run_u("LUI", 0x12345), 0x12345000)
+
+    def test_zero(self):
+        self.assertEqual(run_u("LUI", 0x00000), 0x0)
+
+    def test_top_bit_set(self):
+        # LUI does not sign-extend; it just places the bits
+        self.assertEqual(run_u("LUI", 0xFFFFF), 0xFFFFF000)
+
+
+class TestAUIPC(unittest.TestCase):
+    def test_adds_to_pc(self):
+        self.assertEqual(run_u("AUIPC", 0x1, pc=0x1000), 0x1000 + 0x1000)
+
+    def test_pc_zero_same_as_lui(self):
+        self.assertEqual(run_u("AUIPC", 0x12345, pc=0), 0x12345000)
+
+    def test_wraps_to_32_bits(self):
+        # 0xFFFFF000 + 0x2000 overflows 32 bits and wraps
+        self.assertEqual(run_u("AUIPC", 0xFFFFF, pc=0x2000), 0x1000)
 
 
 if __name__ == "__main__":
