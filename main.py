@@ -203,3 +203,15 @@ class RISC_V:
 
             self.write_reg(rd, self.pc + 4)       # link: save return address
             self.pc = (self.pc + imm) & 0xFFFFFFFF
+            
+        elif opcode == OP_JALR:
+            imm = to_signed((instr >> 20) & 0xFFF, 12)
+            rs1 = (instr >> 15) & 0x1F
+            rd  = (instr >> 7) & 0x1F
+            funct3 = (instr >> 12) & 0x7
+            
+            if funct3 == 0b000:
+                target = self.registers[rs1]
+                self.write_reg(rd,self.pc + 4)
+                self.pc = (imm + target) & 0xFFFFFFFE
+            

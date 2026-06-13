@@ -140,6 +140,21 @@ def run_jal(imm, pc=0x1000, rd=1):
     return cpu.pc, cpu.registers[rd]
 
 
+def encode_jalr(rd, rs1, imm):
+    """Encode a JALR (I-type) instruction. imm is the signed 12-bit offset."""
+    opcode = 0b1100111  # OP_JALR, funct3 = 000
+    return (((imm & 0xFFF) << 20) | (rs1 << 15) | (rd << 7) | opcode)
+
+
+def run_jalr(base, imm, pc=0x1000, rd=1, rs1=2):
+    """Set rs1=base; execute JALR at pc; return (resulting pc, link value)."""
+    cpu = RISC_V()
+    cpu.pc = pc
+    cpu.registers[rs1] = base & 0xFFFFFFFF
+    cpu.decode_instruction(encode_jalr(rd, rs1, imm))
+    return cpu.pc, cpu.registers[rd]
+
+
 def run_shift_imm(op, a, shamt, rd=3, rs1=1):
     """Load a into rs1; execute shift-immediate op; return value written to rd."""
     cpu = RISC_V()
@@ -542,6 +557,44 @@ class TestJAL(unittest.TestCase):
         # exercises the imm[19:12] field of the scrambled immediate
         pc, _ = run_jal(0x1F000, pc=0x1000)
         self.assertEqual(pc, 0x1000 + 0x1F000)
+
+
+class TestJALR(unittest.TestCase):
+    def test_jump_to_register_target(self):
+        # target = rs1 + imm
+        pc, _ = run_jalr(0x2000, 0x40, pc=0x1000)
+        self.assertEqual(pc, 0x2040)
+
+    def test_link_is_pc_plus_4(self):
+        _, link = run_jalr(0x2000, 0x40, pc=0x1000)
+        self.assertEqual(link, 0x1000 + 4)
+
+    def test_negative_immediate(self):
+        pc, _ = run_jalr(0x2000, -0x10, pc=0x1000)
+        self.assertEqual(pc, 0x2000 - 0x10)
+
+    def test_lsb_is_cleared(self):
+        # rs1 + imm produces an odd address; JALR forces it even
+        pc, _ = run_jalr(0x2001, 0, pc=0x1000)
+        self.assertEqual(pc, 0x2000)
+
+    def test_rd_equals_rs1(self):
+        # jalr x1, x1, 0 : must read rs1's old value before overwriting it
+        cpu = RISC_V()
+        cpu.pc = 0x1000
+        cpu.registers[1] = 0x2000
+        cpu.decode_instruction(encode_jalr(1, 1, 0x40))
+        self.assertEqual(cpu.pc, 0x2040)       # used old rs1, not the new link
+        self.assertEqual(cpu.registers[1], 0x1004)  # link written after
+
+    def test_ret_idiom_discards_link(self):
+        # jalr x0, ra, 0 is `ret`; x0 stays 0, pc jumps to ra
+        cpu = RISC_V()
+        cpu.pc = 0x1000
+        cpu.registers[2] = 0x500   # ra in rs1=2
+        cpu.decode_instruction(encode_jalr(0, 2, 0))
+        self.assertEqual(cpu.pc, 0x500)
+        self.assertEqual(cpu.registers[0], 0)
 
 
 class TestX0Hardwired(unittest.TestCase):
