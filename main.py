@@ -157,4 +157,45 @@ class RISC_V:
             imm = instr & 0xFFFFF000
             rd = (instr >> 7) & 0x1F
             self.registers[rd] = (self.pc + imm) & 0xFFFFFFFF
+
+        elif opcode == OP_BRANCH:
+            imm = (
+                ((instr >> 31) & 0x1)  << 12 |   # imm[12]  <- sign bit
+                ((instr >> 7)  & 0x1)  << 11 |   # imm[11]
+                ((instr >> 25) & 0x3F) << 5  |   # imm[10:5]
+                ((instr >> 8)  & 0xF)  << 1      # imm[4:1]
+            )                                     # imm[0] is always 0
+            imm = to_signed(imm, 13)    
+            rs2 = (instr >> 20) & 0x1F         
+            rs1 = (instr >> 15) & 0x1F
+            funct3 = (instr >> 12) & 0x07
             
+            a = self.registers[rs1]
+            b = self.registers[rs2]
+            
+            taken = False
+            if funct3 == 0:
+                # BEQ
+                taken = (a == b)
+            elif funct3 == 0b001:
+                # BNE
+                taken = (a != b)
+            elif funct3 == 0b100:
+                # BLT
+                taken = (to_signed(a) < to_signed(b))
+            elif funct3 == 0b101:
+                # BGE
+                taken = (to_signed(a) >= to_signed(b))
+            elif funct3 == 0b110:
+                # BLTU
+                taken = (a < b)
+            elif funct3 == 0b111:
+                # BGEU
+                taken = (a >= b)
+
+            if taken:
+                self.pc = (self.pc + imm) & 0xFFFFFFFF   # jump
+            else:
+                self.pc = (self.pc + 4) & 0xFFFFFFFF      # fall through
+
+                

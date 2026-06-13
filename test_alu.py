@@ -87,6 +87,37 @@ def run_u(op, imm20, pc=0, rd=3):
     return cpu.registers[rd]
 
 
+# funct3 selectors for B-type (branch) ops
+F3_B = {"BEQ": 0b000, "BNE": 0b001, "BLT": 0b100,
+        "BGE": 0b101, "BLTU": 0b110, "BGEU": 0b111}
+
+
+def encode_b(op, rs1, rs2, imm):
+    """Encode a B-type branch instruction. imm is the signed byte offset."""
+    opcode = 0b1100011  # OP_BRANCH
+    imm &= 0x1FFF  # 13-bit two's complement; bit 0 is dropped on encode
+    return (
+        (((imm >> 12) & 0x1) << 31)   # imm[12]
+        | (((imm >> 5) & 0x3F) << 25)  # imm[10:5]
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (F3_B[op] << 12)
+        | (((imm >> 1) & 0xF) << 8)    # imm[4:1]
+        | (((imm >> 11) & 0x1) << 7)   # imm[11]
+        | opcode
+    )
+
+
+def run_branch(op, a, b, imm, pc=0x1000, rs1=1, rs2=2):
+    """Set pc and rs1/rs2; execute branch; return the resulting pc."""
+    cpu = RISC_V()
+    cpu.pc = pc
+    cpu.registers[rs1] = a & 0xFFFFFFFF
+    cpu.registers[rs2] = b & 0xFFFFFFFF
+    cpu.decode_instruction(encode_b(op, rs1, rs2, imm))
+    return cpu.pc
+
+
 def run_shift_imm(op, a, shamt, rd=3, rs1=1):
     """Load a into rs1; execute shift-immediate op; return value written to rd."""
     cpu = RISC_V()
@@ -387,6 +418,80 @@ class TestAUIPC(unittest.TestCase):
     def test_wraps_to_32_bits(self):
         # 0xFFFFF000 + 0x2000 overflows 32 bits and wraps
         self.assertEqual(run_u("AUIPC", 0xFFFFF, pc=0x2000), 0x1000)
+
+
+PC = 0x1000  # base pc used by run_branch
+
+
+class TestBEQ(unittest.TestCase):
+    def test_taken(self):
+        self.assertEqual(run_branch("BEQ", 5, 5, 0x40), PC + 0x40)
+
+    def test_not_taken(self):
+        self.assertEqual(run_branch("BEQ", 5, 6, 0x40), PC + 4)
+
+
+class TestBNE(unittest.TestCase):
+    def test_taken(self):
+        self.assertEqual(run_branch("BNE", 5, 6, 0x40), PC + 0x40)
+
+    def test_not_taken(self):
+        self.assertEqual(run_branch("BNE", 5, 5, 0x40), PC + 4)
+
+
+class TestBLT(unittest.TestCase):
+    def test_taken(self):
+        self.assertEqual(run_branch("BLT", 1, 2, 0x40), PC + 0x40)
+
+    def test_not_taken_equal(self):
+        self.assertEqual(run_branch("BLT", 2, 2, 0x40), PC + 4)
+
+    def test_signed_negative_less_than_positive(self):
+        # -1 < 1 under signed comparison -> taken
+        self.assertEqual(run_branch("BLT", -1, 1, 0x40), PC + 0x40)
+
+
+class TestBGE(unittest.TestCase):
+    def test_taken_greater(self):
+        self.assertEqual(run_branch("BGE", 2, 1, 0x40), PC + 0x40)
+
+    def test_taken_equal(self):
+        # >= must branch when equal
+        self.assertEqual(run_branch("BGE", 2, 2, 0x40), PC + 0x40)
+
+    def test_not_taken(self):
+        self.assertEqual(run_branch("BGE", 1, 2, 0x40), PC + 4)
+
+
+class TestBLTU(unittest.TestCase):
+    def test_taken(self):
+        self.assertEqual(run_branch("BLTU", 1, 2, 0x40), PC + 0x40)
+
+    def test_large_unsigned_not_less(self):
+        # 0xFFFFFFFF is max unsigned, NOT < 1 -> not taken
+        self.assertEqual(run_branch("BLTU", 0xFFFFFFFF, 1, 0x40), PC + 4)
+
+
+class TestBGEU(unittest.TestCase):
+    def test_taken_equal(self):
+        self.assertEqual(run_branch("BGEU", 5, 5, 0x40), PC + 0x40)
+
+    def test_large_unsigned_taken(self):
+        # 0xFFFFFFFF >= 1 unsigned -> taken
+        self.assertEqual(run_branch("BGEU", 0xFFFFFFFF, 1, 0x40), PC + 0x40)
+
+    def test_not_taken(self):
+        self.assertEqual(run_branch("BGEU", 1, 2, 0x40), PC + 4)
+
+
+class TestBranchOffset(unittest.TestCase):
+    def test_backward_negative_offset(self):
+        # taken branch with negative offset jumps backward (loop case)
+        self.assertEqual(run_branch("BEQ", 5, 5, -0x20), PC - 0x20)
+
+    def test_offset_is_even(self):
+        # smallest nonzero offset is 2 (bit 0 always 0)
+        self.assertEqual(run_branch("BEQ", 5, 5, 2), PC + 2)
 
 
 if __name__ == "__main__":
