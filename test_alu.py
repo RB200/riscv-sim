@@ -115,7 +115,7 @@ def run_branch(op, a, b, imm, pc=0x1000, rs1=1, rs2=2):
     cpu.registers[rs1] = a & 0xFFFFFFFF
     cpu.registers[rs2] = b & 0xFFFFFFFF
     cpu.decode_instruction(encode_b(op, rs1, rs2, imm))
-    return cpu.pc
+    return cpu.next_pc
 
 
 def encode_jal(rd, imm):
@@ -137,7 +137,7 @@ def run_jal(imm, pc=0x1000, rd=1):
     cpu = RISC_V()
     cpu.pc = pc
     cpu.decode_instruction(encode_jal(rd, imm))
-    return cpu.pc, cpu.registers[rd]
+    return cpu.next_pc, cpu.registers[rd]
 
 
 def encode_jalr(rd, rs1, imm):
@@ -152,7 +152,7 @@ def run_jalr(base, imm, pc=0x1000, rd=1, rs1=2):
     cpu.pc = pc
     cpu.registers[rs1] = base & 0xFFFFFFFF
     cpu.decode_instruction(encode_jalr(rd, rs1, imm))
-    return cpu.pc, cpu.registers[rd]
+    return cpu.next_pc, cpu.registers[rd]
 
 
 # funct3 selectors for load (OP_LOAD) ops
@@ -602,7 +602,7 @@ class TestJAL(unittest.TestCase):
         cpu = RISC_V()
         cpu.pc = 0x1000
         cpu.decode_instruction(encode_jal(0, 0x40))
-        self.assertEqual(cpu.pc, 0x1000 + 0x40)
+        self.assertEqual(cpu.next_pc, 0x1000 + 0x40)
         self.assertEqual(cpu.registers[0], 0)
 
     def test_large_offset(self):
@@ -636,7 +636,7 @@ class TestJALR(unittest.TestCase):
         cpu.pc = 0x1000
         cpu.registers[1] = 0x2000
         cpu.decode_instruction(encode_jalr(1, 1, 0x40))
-        self.assertEqual(cpu.pc, 0x2040)       # used old rs1, not the new link
+        self.assertEqual(cpu.next_pc, 0x2040)       # used old rs1, not the new link
         self.assertEqual(cpu.registers[1], 0x1004)  # link written after
 
     def test_ret_idiom_discards_link(self):
@@ -645,7 +645,7 @@ class TestJALR(unittest.TestCase):
         cpu.pc = 0x1000
         cpu.registers[2] = 0x500   # ra in rs1=2
         cpu.decode_instruction(encode_jalr(0, 2, 0))
-        self.assertEqual(cpu.pc, 0x500)
+        self.assertEqual(cpu.next_pc, 0x500)
         self.assertEqual(cpu.registers[0], 0)
 
 
@@ -786,6 +786,37 @@ class TestStoreLoadRoundTrip(unittest.TestCase):
 
     def test_byte_unsigned(self):
         self.assertEqual(self._roundtrip("SB", "LBU", 0xEF), 0xEF)
+
+
+ECALL  = 0x00000073   # opcode SYSTEM, funct3=0, imm=0x000
+EBREAK = 0x00100073   # opcode SYSTEM, funct3=0, imm=0x001
+FENCE  = 0x0000000F   # opcode FENCE
+
+
+class TestSystem(unittest.TestCase):
+    def test_ecall_raises_systemexit(self):
+        cpu = RISC_V()
+        with self.assertRaises(SystemExit) as ctx:
+            cpu.decode_instruction(ECALL)
+        self.assertEqual(str(ctx.exception), "ECALL")
+
+    def test_ebreak_raises_systemexit(self):
+        cpu = RISC_V()
+        with self.assertRaises(SystemExit) as ctx:
+            cpu.decode_instruction(EBREAK)
+        self.assertEqual(str(ctx.exception), "EBREAK")
+
+
+class TestFence(unittest.TestCase):
+    def test_is_noop(self):
+        cpu = RISC_V()
+        cpu.registers[1] = 0x1234
+        cpu.pc = 0x40
+        before_regs = list(cpu.registers)
+        before_pc = cpu.pc
+        cpu.decode_instruction(FENCE)   # must not raise
+        self.assertEqual(cpu.registers, before_regs)
+        self.assertEqual(cpu.pc, before_pc)
 
 
 class TestX0Hardwired(unittest.TestCase):

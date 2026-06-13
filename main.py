@@ -20,7 +20,9 @@ class RISC_V:
     def __init__(self):
         self.memory = bytearray(1024 * 1024)
         self.pc = 0
+        self.next_pc = 0    # where execution goes after the current instruction
         self.registers = [0] * 32
+        self.halted = False
 
     def write_reg(self, rd, val):
         if rd != 0:                              # x0 is hardwired to zero
@@ -186,9 +188,9 @@ class RISC_V:
                 taken = (a >= b)
 
             if taken:
-                self.pc = (self.pc + imm) & 0xFFFFFFFF   # jump
+                self.next_pc = (self.pc + imm) & 0xFFFFFFFF   # jump
             else:
-                self.pc = (self.pc + 4) & 0xFFFFFFFF      # fall through
+                self.next_pc = (self.pc + 4) & 0xFFFFFFFF      # fall through
 
         elif opcode == OP_JAL:
             imm = (
@@ -201,7 +203,7 @@ class RISC_V:
             rd = (instr >> 7) & 0x1F
 
             self.write_reg(rd, self.pc + 4)       # link: save return address
-            self.pc = (self.pc + imm) & 0xFFFFFFFF
+            self.next_pc = (self.pc + imm) & 0xFFFFFFFF
             
         elif opcode == OP_JALR:
             imm = to_signed((instr >> 20) & 0xFFF, 12)
@@ -212,7 +214,7 @@ class RISC_V:
             if funct3 == 0b000:
                 target = self.registers[rs1]
                 self.write_reg(rd,self.pc + 4)
-                self.pc = (imm + target) & 0xFFFFFFFE
+                self.next_pc = (imm + target) & 0xFFFFFFFE
          
         elif opcode == OP_LOAD:
             imm = to_signed((instr >> 20) & 0xFFF, 12)
@@ -266,3 +268,33 @@ class RISC_V:
             elif funct3 == 0b010:
                 # SW
                 self.memory[addr:addr+4] = (val & 0xFFFFFFFF).to_bytes(4,"little")
+
+        elif opcode == OP_FENCE:
+            pass
+            
+        elif opcode == OP_SYSTEM:
+            funct3 = (instr >> 12) & 0x07 
+            
+            if funct3 == 0b000:
+                imm = (instr >> 20) & 0xFFF
+                if imm == 0x000:
+                    # ECALL
+                    raise SystemExit("ECALL")
+                elif imm == 0x001:
+                    # EBREAK
+                    raise SystemExit("EBREAK")
+
+    def load(self, data, addr=0):
+        """Copy a flat program image into memory and point pc at it."""
+        self.memory[addr:addr + len(data)] = data
+        self.pc = addr
+
+    def run(self):
+        try:
+            while True:
+                instr = int.from_bytes(self.memory[self.pc:self.pc+4], "little")
+                self.next_pc = (self.pc + 4) & 0xFFFFFFFF
+                self.decode_instruction(instr)
+                self.pc = self.next_pc
+        except SystemExit as e:
+            return str(e)   # "ECALL" or "EBREAK" — why we stopped
