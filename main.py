@@ -1,5 +1,3 @@
-memory = bytearray(1024 * 1024)
-
 # opcodes
 OP_LUI    = 0b0110111
 OP_AUIPC  = 0b0010111
@@ -20,6 +18,7 @@ def to_signed(val, bits=32):
     return val
 class RISC_V:
     def __init__(self):
+        self.memory = bytearray(1024 * 1024)
         self.pc = 0
         self.registers = [0] * 32
 
@@ -214,4 +213,36 @@ class RISC_V:
                 target = self.registers[rs1]
                 self.write_reg(rd,self.pc + 4)
                 self.pc = (imm + target) & 0xFFFFFFFE
+         
+        elif opcode == OP_LOAD:
+            imm = to_signed((instr >> 20) & 0xFFF, 12)
+            rs1 = (instr >> 15) & 0x1F
+            funct3 = (instr >> 12) & 0x07
+            rd = (instr >> 7) & 0x1F
             
+            addr = (imm + self.registers[rs1]) & 0xFFFFFFFF
+            if funct3 == 0b000:
+                # LB
+                raw = self.memory[addr]
+                
+                self.write_reg(rd,to_signed(raw,8))
+                
+            elif funct3 == 0b001:
+                # LH
+                raw = to_signed(int.from_bytes(self.memory[addr:addr+2], "little"),16)
+                self.write_reg(rd,raw)
+            
+            elif funct3 == 0b010:
+                # LW
+                raw = int.from_bytes(self.memory[addr:addr+4],"little")
+                self.write_reg(rd,raw)
+            
+            elif funct3 == 0b100:
+                # LBU
+                raw = self.memory[addr]
+                self.write_reg(rd,raw)
+            
+            elif funct3 == 0b101:
+                # LHU
+                raw = int.from_bytes(self.memory[addr:addr+2], "little")
+                self.write_reg(rd,raw)

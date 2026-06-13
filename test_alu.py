@@ -155,6 +155,31 @@ def run_jalr(base, imm, pc=0x1000, rd=1, rs1=2):
     return cpu.pc, cpu.registers[rd]
 
 
+# funct3 selectors for load (OP_LOAD) ops
+F3_LOAD = {"LB": 0b000, "LH": 0b001, "LW": 0b010, "LBU": 0b100, "LHU": 0b101}
+
+
+def encode_load(op, rd, rs1, imm):
+    """Encode a load (I-type) instruction. imm is the signed 12-bit offset."""
+    opcode = 0b0000011  # OP_LOAD
+    return (
+        ((imm & 0xFFF) << 20)
+        | (rs1 << 15)
+        | (F3_LOAD[op] << 12)
+        | (rd << 7)
+        | opcode
+    )
+
+
+def run_load(op, mem_bytes, addr=0x100, imm=0, rd=1, rs1=2):
+    """Place mem_bytes at addr; load from rs1+imm; return value written to rd."""
+    cpu = RISC_V()
+    cpu.registers[rs1] = addr
+    cpu.memory[addr:addr + len(mem_bytes)] = mem_bytes
+    cpu.decode_instruction(encode_load(op, rd, rs1, imm))
+    return cpu.registers[rd]
+
+
 def run_shift_imm(op, a, shamt, rd=3, rs1=1):
     """Load a into rs1; execute shift-immediate op; return value written to rd."""
     cpu = RISC_V()
@@ -595,6 +620,76 @@ class TestJALR(unittest.TestCase):
         cpu.decode_instruction(encode_jalr(0, 2, 0))
         self.assertEqual(cpu.pc, 0x500)
         self.assertEqual(cpu.registers[0], 0)
+
+
+class TestLB(unittest.TestCase):
+    def test_positive_byte(self):
+        self.assertEqual(run_load("LB", b"\x7F"), 0x7F)
+
+    def test_sign_extends_negative(self):
+        # 0x80 has the top bit set -> -128 -> 0xFFFFFF80
+        self.assertEqual(run_load("LB", b"\x80"), 0xFFFFFF80)
+
+    def test_all_ones_is_minus_one(self):
+        self.assertEqual(run_load("LB", b"\xFF"), 0xFFFFFFFF)
+
+
+class TestLBU(unittest.TestCase):
+    def test_zero_extends(self):
+        # same 0xFF byte, but zero-extended -> 255
+        self.assertEqual(run_load("LBU", b"\xFF"), 0x000000FF)
+
+    def test_positive_byte(self):
+        self.assertEqual(run_load("LBU", b"\x7F"), 0x7F)
+
+
+class TestLH(unittest.TestCase):
+    def test_little_endian(self):
+        # bytes 0x34, 0x12 -> 0x1234 (low byte first)
+        self.assertEqual(run_load("LH", b"\x34\x12"), 0x1234)
+
+    def test_sign_extends_negative(self):
+        # 0xFFFF -> -1 -> 0xFFFFFFFF
+        self.assertEqual(run_load("LH", b"\xFF\xFF"), 0xFFFFFFFF)
+
+    def test_top_bit_set(self):
+        # 0x8000 -> -32768 -> 0xFFFF8000
+        self.assertEqual(run_load("LH", b"\x00\x80"), 0xFFFF8000)
+
+
+class TestLHU(unittest.TestCase):
+    def test_zero_extends(self):
+        self.assertEqual(run_load("LHU", b"\xFF\xFF"), 0x0000FFFF)
+
+    def test_little_endian(self):
+        self.assertEqual(run_load("LHU", b"\x34\x12"), 0x1234)
+
+
+class TestLW(unittest.TestCase):
+    def test_little_endian(self):
+        # bytes 0x78,0x56,0x34,0x12 -> 0x12345678
+        self.assertEqual(run_load("LW", b"\x78\x56\x34\x12"), 0x12345678)
+
+    def test_full_width(self):
+        self.assertEqual(run_load("LW", b"\xFF\xFF\xFF\xFF"), 0xFFFFFFFF)
+
+
+class TestLoadOffset(unittest.TestCase):
+    def test_positive_offset(self):
+        # value sits at addr+4; load with imm=4
+        cpu = RISC_V()
+        cpu.registers[2] = 0x100
+        cpu.memory[0x104] = 0x42
+        cpu.decode_instruction(encode_load("LBU", 1, 2, 4))
+        self.assertEqual(cpu.registers[1], 0x42)
+
+    def test_negative_offset(self):
+        # value sits at addr-4; load with imm=-4
+        cpu = RISC_V()
+        cpu.registers[2] = 0x100
+        cpu.memory[0xFC] = 0x42
+        cpu.decode_instruction(encode_load("LBU", 1, 2, -4))
+        self.assertEqual(cpu.registers[1], 0x42)
 
 
 class TestX0Hardwired(unittest.TestCase):
