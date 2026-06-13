@@ -246,3 +246,23 @@ class RISC_V:
                 # LHU
                 raw = int.from_bytes(self.memory[addr:addr+2], "little")
                 self.write_reg(rd,raw)
+                
+        elif opcode == OP_STORE:
+            imm = (((instr >> 25) & 0x7F) << 5) + ((instr >> 7) & 0x1F)
+            imm = to_signed(imm, 12)
+            
+            rs2 = (instr >> 20) & 0x1F
+            rs1 = (instr >> 15) & 0x1F
+            funct3 = (instr >> 12) & 0x07
+            
+            addr = (self.registers[rs1] + imm) & 0xFFFFFFFF
+            val = self.registers[rs2]
+            if funct3 == 0b000:
+                # SB
+                self.memory[addr] = val & 0xFF
+            elif funct3 == 0b001:
+                # SH
+                self.memory[addr:addr+2] = (val & 0xFFFF).to_bytes(2,"little")
+            elif funct3 == 0b010:
+                # SW
+                self.memory[addr:addr+4] = (val & 0xFFFFFFFF).to_bytes(4,"little")

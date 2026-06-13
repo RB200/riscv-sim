@@ -180,6 +180,33 @@ def run_load(op, mem_bytes, addr=0x100, imm=0, rd=1, rs1=2):
     return cpu.registers[rd]
 
 
+# funct3 selectors for store (OP_STORE) ops
+F3_STORE = {"SB": 0b000, "SH": 0b001, "SW": 0b010}
+
+
+def encode_store(op, rs1, rs2, imm):
+    """Encode a store (S-type) instruction. imm is the signed 12-bit offset."""
+    opcode = 0b0100011  # OP_STORE
+    imm &= 0xFFF
+    return (
+        (((imm >> 5) & 0x7F) << 25)   # imm[11:5]
+        | (rs2 << 20)
+        | (rs1 << 15)
+        | (F3_STORE[op] << 12)
+        | ((imm & 0x1F) << 7)          # imm[4:0]
+        | opcode
+    )
+
+
+def run_store(op, val, nbytes, addr=0x100, imm=0, rs1=2, rs2=3):
+    """Store val (in rs2) at rs1+imm; return the nbytes written, as bytes."""
+    cpu = RISC_V()
+    cpu.registers[rs1] = addr
+    cpu.registers[rs2] = val & 0xFFFFFFFF
+    cpu.decode_instruction(encode_store(op, rs1, rs2, imm))
+    return bytes(cpu.memory[addr:addr + nbytes])
+
+
 def run_shift_imm(op, a, shamt, rd=3, rs1=1):
     """Load a into rs1; execute shift-immediate op; return value written to rd."""
     cpu = RISC_V()
@@ -690,6 +717,75 @@ class TestLoadOffset(unittest.TestCase):
         cpu.memory[0xFC] = 0x42
         cpu.decode_instruction(encode_load("LBU", 1, 2, -4))
         self.assertEqual(cpu.registers[1], 0x42)
+
+
+class TestSB(unittest.TestCase):
+    def test_writes_low_byte(self):
+        self.assertEqual(run_store("SB", 0x42, 1), b"\x42")
+
+    def test_truncates_to_one_byte(self):
+        # only the low byte of the wide value is stored
+        self.assertEqual(run_store("SB", 0x12345678, 1), b"\x78")
+
+    def test_leaves_neighbor_untouched(self):
+        cpu = RISC_V()
+        cpu.registers[2] = 0x100
+        cpu.registers[3] = 0xFFFFFFFF
+        cpu.decode_instruction(encode_store("SB", 2, 3, 0))
+        self.assertEqual(cpu.memory[0x100], 0xFF)
+        self.assertEqual(cpu.memory[0x101], 0)  # next byte still zero
+
+
+class TestSH(unittest.TestCase):
+    def test_little_endian(self):
+        # 0x1234 -> low byte 0x34 first
+        self.assertEqual(run_store("SH", 0x1234, 2), b"\x34\x12")
+
+    def test_truncates_to_two_bytes(self):
+        self.assertEqual(run_store("SH", 0x12345678, 2), b"\x78\x56")
+
+
+class TestSW(unittest.TestCase):
+    def test_little_endian(self):
+        self.assertEqual(run_store("SW", 0x12345678, 4), b"\x78\x56\x34\x12")
+
+    def test_full_width(self):
+        self.assertEqual(run_store("SW", 0xFFFFFFFF, 4), b"\xFF\xFF\xFF\xFF")
+
+
+class TestStoreOffset(unittest.TestCase):
+    def test_positive_offset(self):
+        cpu = RISC_V()
+        cpu.registers[2] = 0x100
+        cpu.registers[3] = 0x42
+        cpu.decode_instruction(encode_store("SB", 2, 3, 4))
+        self.assertEqual(cpu.memory[0x104], 0x42)
+
+    def test_negative_offset(self):
+        cpu = RISC_V()
+        cpu.registers[2] = 0x100
+        cpu.registers[3] = 0x42
+        cpu.decode_instruction(encode_store("SB", 2, 3, -4))
+        self.assertEqual(cpu.memory[0xFC], 0x42)
+
+
+class TestStoreLoadRoundTrip(unittest.TestCase):
+    def _roundtrip(self, store_op, load_op, val):
+        cpu = RISC_V()
+        cpu.registers[2] = 0x200          # base address in rs1=2
+        cpu.registers[3] = val            # data in rs2=3
+        cpu.decode_instruction(encode_store(store_op, 2, 3, 0))
+        cpu.decode_instruction(encode_load(load_op, 1, 2, 0))  # load back into rd=1
+        return cpu.registers[1]
+
+    def test_word(self):
+        self.assertEqual(self._roundtrip("SW", "LW", 0xDEADBEEF), 0xDEADBEEF)
+
+    def test_halfword_unsigned(self):
+        self.assertEqual(self._roundtrip("SH", "LHU", 0xBEEF), 0xBEEF)
+
+    def test_byte_unsigned(self):
+        self.assertEqual(self._roundtrip("SB", "LBU", 0xEF), 0xEF)
 
 
 class TestX0Hardwired(unittest.TestCase):
