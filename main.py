@@ -22,70 +22,69 @@ class RISC_V:
     def __init__(self):
         self.pc = 0
         self.registers = [0] * 32
-        
-    
+
+    def write_reg(self, rd, val):
+        if rd != 0:                              # x0 is hardwired to zero
+            self.registers[rd] = val & 0xFFFFFFFF  # store as 32-bit unsigned
+
     def decode_instruction(self, instr):
-        opcode = instr & 0x7F 
-        
+        opcode = instr & 0x7F
+
         if opcode == OP_REG:
             funct3 = (instr >> 12) & 0x07
             funct7 = (instr >> 25) & 0x7F
             rs1 = (instr >> 15) & 0x1F
             rs2 = (instr >> 20) & 0x1F
             rd = (instr >> 7) & 0x1F
-            
-            
+
+
             a = self.registers[rs1]
             b = self.registers[rs2]
-            
+
             if funct3 == 0b000:
                 if funct7 == 0:
-                    self.registers[rd] = a + b
+                    self.write_reg(rd, a + b)
                     print("add")
-                    pass
                 elif funct7 == 0b100000:
-                    self.registers[rd] = a - b
+                    self.write_reg(rd, a - b)
                     print("sub")
-                    pass
-            
+
             elif funct3 == 0b001:
                 # SLL
-                self.registers[rd] = (a << (b & 0x1F)) & 0xFFFFFFFF
+                self.write_reg(rd, a << (b & 0x1F))
                 print("SLL")
 
             elif funct3 == 0b010:  # SLT (signed)
-                self.registers[rd] = 1 if to_signed(a) < to_signed(b) else 0
+                self.write_reg(rd, 1 if to_signed(a) < to_signed(b) else 0)
 
             elif funct3 == 0b011:  # SLTU (unsigned)
-                if a == x0 and b != 0: # edge case as per sec 2.4.2 of spec
-                    self.registers[rd] = 1
-                self.registers[rd] = 1 if a < b else 0
-            
+                self.write_reg(rd, 1 if a < b else 0)
+
             elif funct3 == 0b100:
-                self.registers[rd] = a ^ b
+                self.write_reg(rd, a ^ b)
                 print("XOR")
-            
+
             elif funct3 == 0b101:
                 shamt = b & 0x1F    # shift amount = low 5 bits of rs2
                 if funct7 == 0:
                     # SRL
-                    self.registers[rd] = (a >> shamt) & 0xFFFFFFFF
+                    self.write_reg(rd, a >> shamt)
                     print("SRL")
                 elif funct7 == 0b0100000:
                     # SRA
-                    self.registers[rd] = (to_signed(a) >> shamt) & 0xFFFFFFFF
+                    self.write_reg(rd, to_signed(a) >> shamt)
                     print("SRA")
-                    
+
             elif funct3 == 0b110:
                 # OR
-                self.registers[rd] = a | b
+                self.write_reg(rd, a | b)
                 print("OR")
-            
+
             elif funct3 == 0b111:
-                self.registers[rd] = a & b
                 # AND
+                self.write_reg(rd, a & b)
                 print("AND")
-        
+
         elif opcode == OP_IMM:
             imm = to_signed((instr >> 20) & 0xFFF, 12) # sign-extend 12-bit immediate value
             rs1 = (instr >> 15) & 0x1F
@@ -93,70 +92,64 @@ class RISC_V:
             funct7 = (instr >> 25) & 0x7F
             shamt = (instr >> 20) & 0x1F
             rd = (instr >> 7) & 0x1F
-            
+
             a = self.registers[rs1]
-            
+
             if funct3 == 0b000:
                 # ADDI
-                self.registers[rd] = (a + imm) & 0xFFFFFFFF
+                self.write_reg(rd, a + imm)
                 print("ADDI")
-                
+
             elif funct3 == 0b010:
                 # SLTI
-                if to_signed(a) < imm:
-                    self.registers[rd] = 1
-                else: 
-                    self.registers[rd] = 0
+                self.write_reg(rd, 1 if to_signed(a) < imm else 0)
                 print("SLTI")
-                
+
             elif funct3 == 0b011:
                 # SLTIU
-                if a < (imm & 0xFFFFFFFF):
-                    self.registers[rd] = 1
-                else:
-                    self.registers[rd] = 0
+                self.write_reg(rd, 1 if a < (imm & 0xFFFFFFFF) else 0)
                 print("SLTIU")
-                
+
             elif funct3 == 0b100:
                 # XORI
-                self.registers[rd] = (a ^ imm) & 0xFFFFFFFF
+                self.write_reg(rd, a ^ imm)
                 print("XORI")
-                
+
             elif funct3 == 0b110:
-                self.registers[rd] = (a | imm) & 0xFFFFFFFF
                 # ORI
+                self.write_reg(rd, a | imm)
                 print("ORI")
-                
+
             elif funct3 == 0b111:
-                self.registers[rd] = (a & imm) & 0xFFFFFFFF
                 # ANDI
+                self.write_reg(rd, a & imm)
                 print("ANDI")
-            
+
             elif funct3 == 0b001:
-                self.registers[rd] = (a << shamt) & 0xFFFFFFFF
                 # SLLI
+                self.write_reg(rd, a << shamt)
                 print("SLLI")
-            
+
             elif funct3 == 0b101:
                 if funct7 == 0:
                     # SRLI
-                    self.registers[rd] = (a >> shamt) & 0xFFFFFFFF
+                    self.write_reg(rd, a >> shamt)
                     print("SRLI")
                 elif funct7 == 0b0100000:
                     # SRAI
-                    self.registers[rd] = (to_signed(a) >> shamt) & 0xFFFFFFFF
+                    self.write_reg(rd, to_signed(a) >> shamt)
                     print("SRAI")
-        
+
         elif opcode == OP_LUI:
             imm = instr & 0xFFFFF000
             rd = (instr >> 7) & 0x1F
-            
-            self.registers[rd] = imm
-        
+
+            self.write_reg(rd, imm)
+
         elif opcode == OP_AUIPC:
             imm = instr & 0xFFFFF000
             rd = (instr >> 7) & 0x1F
-            self.registers[rd] = (self.pc + imm) & 0xFFFFFFFF
+            self.write_reg(rd, self.pc + imm)
 
         elif opcode == OP_BRANCH:
             imm = (
@@ -165,14 +158,14 @@ class RISC_V:
                 ((instr >> 25) & 0x3F) << 5  |   # imm[10:5]
                 ((instr >> 8)  & 0xF)  << 1      # imm[4:1]
             )                                     # imm[0] is always 0
-            imm = to_signed(imm, 13)    
-            rs2 = (instr >> 20) & 0x1F         
+            imm = to_signed(imm, 13)
+            rs2 = (instr >> 20) & 0x1F
             rs1 = (instr >> 15) & 0x1F
             funct3 = (instr >> 12) & 0x07
-            
+
             a = self.registers[rs1]
             b = self.registers[rs2]
-            
+
             taken = False
             if funct3 == 0:
                 # BEQ
@@ -198,4 +191,15 @@ class RISC_V:
             else:
                 self.pc = (self.pc + 4) & 0xFFFFFFFF      # fall through
 
-                
+        elif opcode == OP_JAL:
+            imm = (
+                ((instr >> 31) & 0x1)   << 20 |   # imm[20]  <- sign bit
+                ((instr >> 12) & 0xFF)  << 12 |   # imm[19:12]
+                ((instr >> 20) & 0x1)   << 11 |   # imm[11]
+                ((instr >> 21) & 0x3FF) << 1      # imm[10:1]
+            )                                      # imm[0] = 0
+            imm = to_signed(imm, 21)
+            rd = (instr >> 7) & 0x1F
+
+            self.write_reg(rd, self.pc + 4)       # link: save return address
+            self.pc = (self.pc + imm) & 0xFFFFFFFF

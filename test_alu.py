@@ -118,6 +118,28 @@ def run_branch(op, a, b, imm, pc=0x1000, rs1=1, rs2=2):
     return cpu.pc
 
 
+def encode_jal(rd, imm):
+    """Encode a JAL (J-type) instruction. imm is the signed byte offset."""
+    opcode = 0b1101111  # OP_JAL
+    imm &= 0x1FFFFF  # 21-bit two's complement; bit 0 is dropped on encode
+    return (
+        (((imm >> 20) & 0x1) << 31)    # imm[20]
+        | (((imm >> 1) & 0x3FF) << 21)  # imm[10:1]
+        | (((imm >> 11) & 0x1) << 20)   # imm[11]
+        | (((imm >> 12) & 0xFF) << 12)  # imm[19:12]
+        | (rd << 7)
+        | opcode
+    )
+
+
+def run_jal(imm, pc=0x1000, rd=1):
+    """Execute JAL at the given pc; return (resulting pc, link register value)."""
+    cpu = RISC_V()
+    cpu.pc = pc
+    cpu.decode_instruction(encode_jal(rd, imm))
+    return cpu.pc, cpu.registers[rd]
+
+
 def run_shift_imm(op, a, shamt, rd=3, rs1=1):
     """Load a into rs1; execute shift-immediate op; return value written to rd."""
     cpu = RISC_V()
@@ -492,6 +514,49 @@ class TestBranchOffset(unittest.TestCase):
     def test_offset_is_even(self):
         # smallest nonzero offset is 2 (bit 0 always 0)
         self.assertEqual(run_branch("BEQ", 5, 5, 2), PC + 2)
+
+
+class TestJAL(unittest.TestCase):
+    def test_forward_jump(self):
+        pc, _ = run_jal(0x40, pc=0x1000)
+        self.assertEqual(pc, 0x1000 + 0x40)
+
+    def test_link_is_pc_plus_4(self):
+        _, link = run_jal(0x40, pc=0x1000)
+        self.assertEqual(link, 0x1000 + 4)
+
+    def test_backward_jump(self):
+        pc, link = run_jal(-0x20, pc=0x1000)
+        self.assertEqual(pc, 0x1000 - 0x20)
+        self.assertEqual(link, 0x1000 + 4)
+
+    def test_discard_link_with_x0(self):
+        # jal x0, offset is a plain jump; x0 must stay 0
+        cpu = RISC_V()
+        cpu.pc = 0x1000
+        cpu.decode_instruction(encode_jal(0, 0x40))
+        self.assertEqual(cpu.pc, 0x1000 + 0x40)
+        self.assertEqual(cpu.registers[0], 0)
+
+    def test_large_offset(self):
+        # exercises the imm[19:12] field of the scrambled immediate
+        pc, _ = run_jal(0x1F000, pc=0x1000)
+        self.assertEqual(pc, 0x1000 + 0x1F000)
+
+
+class TestX0Hardwired(unittest.TestCase):
+    def test_alu_write_to_x0_ignored(self):
+        # add x0, x1, x2 must not change x0
+        cpu = RISC_V()
+        cpu.registers[1] = 5
+        cpu.registers[2] = 7
+        cpu.decode_instruction(encode_r("ADD", 0, 1, 2))
+        self.assertEqual(cpu.registers[0], 0)
+
+    def test_addi_write_to_x0_ignored(self):
+        cpu = RISC_V()
+        cpu.decode_instruction(encode_i("ADDI", 0, 1, 42))
+        self.assertEqual(cpu.registers[0], 0)
 
 
 if __name__ == "__main__":
