@@ -17,12 +17,17 @@ def to_signed(val, bits=32):
         return val - (1 << bits)
     return val
 class RISC_V:
-    def __init__(self):
+    def __init__(self, debug=False):
         self.memory = bytearray(1024 * 1024)
         self.pc = 0
         self.next_pc = 0    # where execution goes after the current instruction
         self.registers = [0] * 32
         self.halted = False
+        self.debug = debug  # when True, print each instruction as it executes
+
+    def log(self, msg):
+        if self.debug:
+            print(msg)
 
     def write_reg(self, rd, val):
         if rd != 0:                              # x0 is hardwired to zero
@@ -45,15 +50,15 @@ class RISC_V:
             if funct3 == 0b000:
                 if funct7 == 0:
                     self.write_reg(rd, a + b)
-                    print("add")
+                    self.log("add")
                 elif funct7 == 0b100000:
                     self.write_reg(rd, a - b)
-                    print("sub")
+                    self.log("sub")
 
             elif funct3 == 0b001:
                 # SLL
                 self.write_reg(rd, a << (b & 0x1F))
-                print("SLL")
+                self.log("SLL")
 
             elif funct3 == 0b010:  # SLT (signed)
                 self.write_reg(rd, 1 if to_signed(a) < to_signed(b) else 0)
@@ -63,28 +68,28 @@ class RISC_V:
 
             elif funct3 == 0b100:
                 self.write_reg(rd, a ^ b)
-                print("XOR")
+                self.log("XOR")
 
             elif funct3 == 0b101:
                 shamt = b & 0x1F    # shift amount = low 5 bits of rs2
                 if funct7 == 0:
                     # SRL
                     self.write_reg(rd, a >> shamt)
-                    print("SRL")
+                    self.log("SRL")
                 elif funct7 == 0b0100000:
                     # SRA
                     self.write_reg(rd, to_signed(a) >> shamt)
-                    print("SRA")
+                    self.log("SRA")
 
             elif funct3 == 0b110:
                 # OR
                 self.write_reg(rd, a | b)
-                print("OR")
+                self.log("OR")
 
             elif funct3 == 0b111:
                 # AND
                 self.write_reg(rd, a & b)
-                print("AND")
+                self.log("AND")
 
         elif opcode == OP_IMM:
             imm = to_signed((instr >> 20) & 0xFFF, 12) # sign-extend 12-bit immediate value
@@ -99,47 +104,47 @@ class RISC_V:
             if funct3 == 0b000:
                 # ADDI
                 self.write_reg(rd, a + imm)
-                print("ADDI")
+                self.log("ADDI")
 
             elif funct3 == 0b010:
                 # SLTI
                 self.write_reg(rd, 1 if to_signed(a) < imm else 0)
-                print("SLTI")
+                self.log("SLTI")
 
             elif funct3 == 0b011:
                 # SLTIU
                 self.write_reg(rd, 1 if a < (imm & 0xFFFFFFFF) else 0)
-                print("SLTIU")
+                self.log("SLTIU")
 
             elif funct3 == 0b100:
                 # XORI
                 self.write_reg(rd, a ^ imm)
-                print("XORI")
+                self.log("XORI")
 
             elif funct3 == 0b110:
                 # ORI
                 self.write_reg(rd, a | imm)
-                print("ORI")
+                self.log("ORI")
 
             elif funct3 == 0b111:
                 # ANDI
                 self.write_reg(rd, a & imm)
-                print("ANDI")
+                self.log("ANDI")
 
             elif funct3 == 0b001:
                 # SLLI
                 self.write_reg(rd, a << shamt)
-                print("SLLI")
+                self.log("SLLI")
 
             elif funct3 == 0b101:
                 if funct7 == 0:
                     # SRLI
                     self.write_reg(rd, a >> shamt)
-                    print("SRLI")
+                    self.log("SRLI")
                 elif funct7 == 0b0100000:
                     # SRAI
                     self.write_reg(rd, to_signed(a) >> shamt)
-                    print("SRAI")
+                    self.log("SRAI")
 
         elif opcode == OP_LUI:
             imm = instr & 0xFFFFF000
