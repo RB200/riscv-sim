@@ -37,7 +37,7 @@ Run the included Fibonacci example:
 
 ```bash
 python3 -c "from main import RISC_V; \
-  c = RISC_V(); c.load(open('fib.bin','rb').read()); \
+  c = RISC_V(); c.load(open('examples/fib.bin','rb').read()); \
   print(c.run()); print('fib(10) =', c.registers[10])"
 ```
 
@@ -72,16 +72,16 @@ print(cpu.registers)                 # inspect the register file
 
 ## Building a program from assembly
 
-Write RV32I assembly (see [`fib.s`](fib.s)), then compile it to a flat binary.
-Programs are loaded at address `0`, and execution starts at `pc = 0`, so the entry
-point must be first. End programs with `ebreak` to halt the simulator.
+Write RV32I assembly (see [`examples/fib.s`](examples/fib.s)), then compile it to a
+flat binary. Programs are loaded at address `0`, and execution starts at `pc = 0`, so
+the entry point must be first. End programs with `ebreak` to halt the simulator.
 
 ```bash
 LLVM=/opt/homebrew/opt/llvm/bin
 $LLVM/clang --target=riscv32 -march=rv32i -nostdlib \
   -fuse-ld=/opt/homebrew/opt/lld/bin/ld.lld \
-  -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,_start fib.s -o fib.elf
-$LLVM/llvm-objcopy -O binary fib.elf fib.bin
+  -Wl,--image-base=0 -Wl,-Ttext=0 -Wl,-e,_start examples/fib.s -o examples/fib.elf
+$LLVM/llvm-objcopy -O binary examples/fib.elf examples/fib.bin
 ```
 
 The pipeline: assembly → ELF (`clang`) → flat binary (`objcopy`) → loaded into memory.
@@ -104,8 +104,8 @@ signed/unsigned edge cases.
 |------|---------|
 | `main.py` | The simulator: instruction decode/execute, memory, and the run loop. |
 | `test_alu.py` | Unit tests and instruction encoders for every RV32I instruction. |
-| `fib.s` | Example program: iterative Fibonacci. |
-| `prog.s` | Example program: a minimal add. |
+| `examples/fib.s` | Example program: iterative Fibonacci. |
+| `examples/prog.s` | Example program: a minimal add. |
 
 ## Not (yet) implemented
 
